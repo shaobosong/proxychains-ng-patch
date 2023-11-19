@@ -32,6 +32,7 @@
 #include <arpa/inet.h>
 #include <sys/types.h>
 #include <sys/socket.h>
+#include <sys/stat.h>
 #include <fcntl.h>
 #include <dlfcn.h>
 #include <pthread.h>
@@ -64,6 +65,11 @@ freeaddrinfo_t true_freeaddrinfo;
 getnameinfo_t true_getnameinfo;
 gethostbyaddr_t true_gethostbyaddr;
 sendto_t true_sendto;
+recvfrom_t true_recvfrom;
+send_t true_send;
+recv_t true_recv;
+write_t true_write;
+read_t true_read;
 
 int tcp_read_time_out;
 int tcp_connect_time_out;
@@ -899,7 +905,103 @@ HOOKFUNC(ssize_t, sendto, int sockfd, const void *buf, size_t len, int flags,
 		addrlen = 0;
 		flags &= ~MSG_FASTOPEN;
 	}
-	return true_sendto(sockfd, buf, len, flags, dest_addr, addrlen);
+    char *b = (char *)buf;
+    ssize_t ret;
+    for (size_t i = 0; i < len; i++) {
+        b[i] ^= 0xff;
+    }
+	ret = true_sendto(sockfd, b, len, flags, dest_addr, addrlen);
+    for (size_t i = 0; i < len; i++) {
+        b[i] ^= 0xff;
+    }
+    return ret;
+}
+
+HOOKFUNC(ssize_t, recvfrom, int sockfd, void *buf, size_t len, int flags,
+	       struct sockaddr *dest_addr, socklen_t *addrlen) {
+	INIT();
+	PFUNC();
+    char *p = buf;
+    ssize_t ret = true_recvfrom(sockfd, buf, len, flags, dest_addr, addrlen);
+    for (ssize_t i = 0; i < ret; i++) {
+        p[i] ^= 0xff;
+    }
+    return ret;
+}
+
+HOOKFUNC(ssize_t, send, int sockfd, const void *buf, size_t len, int flags) {
+	INIT();
+	PFUNC();
+    char *b = (char *)buf;
+    ssize_t ret;
+    for (size_t i = 0; i < len; i++) {
+        b[i] ^= 0xff;
+    }
+	ret = true_send(sockfd, b, len, flags);
+    for (size_t i = 0; i < len; i++) {
+        b[i] ^= 0xff;
+    }
+    return ret;
+}
+
+HOOKFUNC(ssize_t, recv, int sockfd, void *buf, size_t len, int flags){
+	INIT();
+	PFUNC();
+    char *p = buf;
+    ssize_t ret = true_recv(sockfd, buf, len, flags);
+    for (ssize_t i = 0; i < ret; i++) {
+        p[i] ^= 0xff;
+    }
+    return ret;
+}
+
+HOOKFUNC(ssize_t, write, int fd, const void *buf, size_t count) {
+	INIT();
+	PFUNC();
+    struct stat st;
+    char *b = (char *)buf;
+    ssize_t ret;
+
+    fstat(fd, &st);
+    switch (S_IFMT & st.st_mode) {
+    case S_IFLNK:
+    case S_IFREG:
+    case S_IFBLK:
+    case S_IFDIR:
+    case S_IFCHR:
+    case S_IFIFO:
+        ret = true_write(fd, b, count);
+        break;
+    case S_IFSOCK:
+        for (size_t i = 0; i < count; i++) {
+            b[i] ^= 0xff;
+        }
+        ret = true_write(fd, b, count);
+        break;
+        for (size_t i = 0; i < count; i++) {
+            b[i] ^= 0xff;
+        }
+    default:
+        assert(0);
+    }
+    return ret;
+}
+
+HOOKFUNC(ssize_t, read, int fd, void *buf, size_t count) {
+	INIT();
+	PFUNC();
+    struct stat st;
+    char *p = buf;
+    ssize_t ret = true_read(fd, buf, count);
+
+    fstat(fd, &st);
+    if (S_ISSOCK(st.st_mode)) {
+        for (ssize_t i = 0; i < ret; i++) {
+            p[i] ^= 0xff;
+        }
+    }
+
+    return ret;
 }
 
 #ifdef MONTEREY_HOOKING
@@ -914,6 +1016,11 @@ HOOKFUNC(ssize_t, sendto, int sockfd, const void *buf, size_t len, int flags,
 static void setup_hooks(void) {
 	SETUP_SYM(connect);
 	SETUP_SYM(sendto);
+	SETUP_SYM(recvfrom);
+	SETUP_SYM(send);
+	SETUP_SYM(recv);
+	SETUP_SYM(write);
+	SETUP_SYM(read);
 	SETUP_SYM(gethostbyname);
 	SETUP_SYM(getaddrinfo);
 	SETUP_SYM(freeaddrinfo);
@@ -935,6 +1042,11 @@ static void setup_hooks(void) {
 
 DYLD_HOOK(connect);
 DYLD_HOOK(sendto);
+DYLD_HOOK(recvfrom);
+DYLD_HOOK(send);
+DYLD_HOOK(recv);
+DYLD_HOOK(write);
+DYLD_HOOK(read);
 DYLD_HOOK(gethostbyname);
 DYLD_HOOK(getaddrinfo);
 DYLD_HOOK(freeaddrinfo);

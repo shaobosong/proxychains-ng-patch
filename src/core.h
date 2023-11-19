@@ -114,6 +114,12 @@ typedef int (*getnameinfo_t) (const struct sockaddr *, socklen_t, char *,
 
 typedef ssize_t (*sendto_t) (int sockfd, const void *buf, size_t len, int flags,
 			     const struct sockaddr *dest_addr, socklen_t addrlen);
+typedef ssize_t (*recvfrom_t) (int sockfd, void *buf, size_t len, int flags,
+			     struct sockaddr *dest_addr, socklen_t *addrlen);
+typedef ssize_t (*send_t) (int sockfd, const void *buf, size_t len, int flags);
+typedef ssize_t (*recv_t) (int sockfd, void *buf, size_t len, int flags);
+typedef ssize_t (*write_t) (int sockfd, const void *buf, size_t len);
+typedef ssize_t (*read_t) (int sockfd, void *buf, size_t len);
 
 
 
